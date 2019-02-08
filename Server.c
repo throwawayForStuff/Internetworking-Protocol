@@ -1,63 +1,119 @@
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <arpa/inet.h>
-#include <netinet/in.h>
+#include <unistd.h>
 
-#define PORT 1080
-#define MAX  1024
+#define IP_PROTOCOL 0
+#define PORT 15050
+#define NET_BUFF_SIZE 32
+#define cipherKey 'S'
+#define sendrecvflag 0
+#define nofile "File Not Found."
+
+//Clear buffer
+void clearBuf(char * b)
+{
+  int i;
+  for (i = 0; i < NET_BUFF_SIZE; i++)
+    b[i] = '\0';
+}
+
+//To encrypt. Needed?
+char Cipher(char ch)
+{
+  return ch ^ cipherKey;
+}
+
+//Sending file
+int sendFile(FILE* fp, char* buf, int s)
+{
+  int i;
+  int length;
+  char ch;
+  char ch2;
+
+  if (fp == NULL)
+  {
+    strcpy(buf, nofile);
+    length = strlen(nofile);
+    buf[length] = EOF;
+    for (i = 0; i <= length; i++)
+      buf[i] = Cipher(buf[i]);
+    return 1;
+  }
+
+  for (i = 0; i < s; i++)
+  {
+    ch = fgetc(fp);
+    ch2 = Cipher(ch);
+    buf[i] = ch2;
+    if (ch == EOF)
+      return 1;
+  }
+  return 0;
+}
 
 int main()
 {
-  struct sockaddr_in serveraddr;
-  struct sockaddr_in clientaddr;
-  bzero(&serveraddr, sizeof(serveraddr));
+  struct sockaddr_in addr_con;
 
-  int socketfd; //Our socket for storing file descriptor
-  int length;
-  char buffer[MAX];
-  char *message = "Hello World";
+  int socketfd;
+  int nBytes;
+  int addrlen = sizeof(addr_con);
 
-  if ((socketfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
+  char net_buf[NET_BUFF_SIZE];
+  FILE* fp;
+
+  addr_con.sin_family = AF_INET;
+  addr_con.sin_port = htons(PORT);
+  addr_con.sin_addr.s_addr = INADDR_ANY;
+
+  socketfd = socket(AF_INET, SOCK_DGRAM, IP_PROTOCOL);
+
+  if (socketfd < 0)
+    printf("\nCannot create socket.\n");
+  else
+    printf("\nSocket created.\n");
+
+  if (bind(socketfd, (struct sockaddr*)&addr_con, sizeof(addr_con)) == 0)
+    printf("\nBind successfully.\n");
+  else
+    printf("\nCannot bind.\n");
+
+  while (1)
   {
-    perror("Cannot create socket.");
-    exit(EXIT_FAILURE);
+    printf("\nWaiting for file name.\n");
+
+    clearBuf(net_buf);
+
+    nBytes = recvfrom(socketfd, net_buf, NET_BUFF_SIZE, sendrecvflag, (struct sockaddr*)&addr_con, &addrlen);
+
+    fp = fopen(net_buf, "r");
+    printf("\nFile Name: %s\n", net_buf);
+
+    if (fp == NULL)
+      printf("\nCannot open file.\n");
+    else
+      printf("\nFile opened.\n");
+
+    while (1)
+    {
+      if (sendFile(fp, net_buf, NET_BUFF_SIZE))
+      {
+        sendto(socketfd, net_buf, NET_BUFF_SIZE, sendrecvflag, (struct sockaddr*)&addr_con, addrlen);
+	break;
+      }
+
+      sendto(socketfd, net_buf, NET_BUFF_SIZE, sendrecvflag, (struct sockaddr*)&addr_con, addrlen);
+      clearBuf(net_buf);
+    }
+
+    if (fp != NULL)
+      fclose(fp);
   }
-
-  //memset(&serveraddr, 0, sizeof(serveraddr));
-  //memset(&clientaddr, 0, sizeof(clientaddr));
-
-  /*serveraddr.sin_family = AF_INET;
-  serveraddr.sin_addr.s_addr = INADDR_ANY;
-  serveraddr.sin_port = htons(PORT);*/
-
-  serveraddr.sin_addr.s_addr = htonl(INADDR_ANY);
-  serveraddr.sin_port = htons(PORT);
-  serveraddr.sin_family = AF_INET;
-
-  if (bind(socketfd, (const struct sockaddr *)&serveraddr, sizeof(serveraddr)) < 0)
-  {
-    perror("Cannot bind.");
-    exit(EXIT_FAILURE);
-  }
-
-  length = sizeof(clientaddr);
-  //n = recvfrom(socketfd, (char *) buffer, MAX, MSG_WAITALL, (struct sockaddr *) &clientaddr, &length);
-  int n = recvfrom(socketfd, buffer, sizeof(buffer), 0, (struct sockaddr *) &clientaddr, &length);
-  buffer[n] = '\0';
-
-  printf("Client: %s\n", buffer);
-
-  //sendto(socketfd, (const char *)message, strlen(message), MSG_CONFIRM, (const struct sockaddr *) &clientaddr, length);
-  sendto(socketfd, message, MAX, 0, (struct sockaddr *)&clientaddr, sizeof(clientaddr));
-
-  printf("Message sent.\n");
-
-  //close(socketfd);
-
-  //return 0;
+  return 0;
 }
-

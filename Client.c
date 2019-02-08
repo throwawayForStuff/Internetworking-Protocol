@@ -1,59 +1,87 @@
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <arpa/inet.h>
-#include <netinet/in.h>
+#include <unistd.h>
 
-#define PORT 1080
-#define MAX  1024
+#define IP_PROTOCOL 0
+#define IP_ADDRESS "127.0.0.1"
+#define PORT 15050
+#define NET_BUFF_SIZE 32
+#define cipherKey 'S'
+#define sendrecvflag 0
+
+//Clear buffer
+void clearBuf(char * b)
+{
+  int i;
+  for (i = 0; i < NET_BUFF_SIZE; i++)
+    b[i] = '\0';
+}
+
+//For decryption. Needed?
+char Cipher(char ch)
+{
+  return ch ^ cipherKey;
+}
+
+int recvFile(char * buf, int s)
+{
+  int i;
+  char ch;
+
+  for (i = 0; i < s; i++)
+  {
+    ch = buf[i];
+    ch = Cipher(ch);
+    if (ch == EOF)
+      return 1;
+    else
+      printf("%c", ch);
+  }
+  return 0;
+}
 
 int main()
 {
-  struct sockaddr_in serveraddr;
+  struct sockaddr_in addr_con;
 
   int socketfd;
-  //int length;
-  int n;
-  char buffer[MAX];
-  char *message = "World says hello.";
+  int nBytes;
+  int addrlen = sizeof(addr_con);
 
-  bzero(&serveraddr, sizeof(serveraddr));
-  //serveraddr.sin_addr.s_addr = inet_addr("127.0.0.1");
-  serveraddr.sin_addr.s_addr = INADDR_ANY;
-  serveraddr.sin_port = htons(PORT);
-  serveraddr.sin_family = AF_INET;
+  char net_buf[NET_BUFF_SIZE];
+  FILE* fp;
 
-  if ((socketfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
+  addr_con.sin_family = AF_INET;
+  addr_con.sin_port = htons(PORT);
+  addr_con.sin_addr.s_addr = inet_addr(IP_ADDRESS);
+
+  socketfd = socket(AF_INET, SOCK_DGRAM, IP_PROTOCOL);
+  if (socketfd < 0)
+    printf("\nCannot create socket.\n");
+  else
+    printf("\nSocket created.\n");
+
+  while (1)
   {
-    perror("Cannot create socket");
-    exit(EXIT_FAILURE);
+    printf("\nEnter file name to receive: ");
+    scanf("%s", net_buf);
+    sendto(socketfd, net_buf, NET_BUFF_SIZE, sendrecvflag, (struct sockaddr*)&addr_con, addrlen);
+    printf("\nFile received.\n");
+
+    while (1)
+    {
+      clearBuf(net_buf);
+      nBytes = recvfrom(socketfd, net_buf, NET_BUFF_SIZE, sendrecvflag, (struct sockaddr*)&addr_con, &addrlen);
+
+      if (recvFile(net_buf, NET_BUFF_SIZE))
+        break;
+    }
   }
-
-  if (connect(socketfd, (struct sockaddr *)&serveraddr, sizeof(serveraddr)) < 0)
-  {
-    printf("Cannot connect.");
-    exit(0);
-  }
-
-  /*memset(&serveraddr, 0, sizeof(serveraddr));
-
-  serveraddr.sin_family = AF_INET;
-  serveraddr.sin_port = htons(PORT);
-  serveraddr.sin_addr.s_addr = INADDR_ANY;*/
-
-  //sendto(socketfd, (const char *)message, strlen(message), MSG_CONFIRM, (const struct sockaddr *) &serveraddr, sizeof(serveraddr));
-  sendto(socketfd, message, MAX, 0, (struct sockaddr*)NULL, sizeof(serveraddr));
-  printf("Message sent.\n");
-
-  //n = recvfrom(socketfd, (char *)buffer, MAX, MSG_WAITALL, (struct sockaddr *) &serveraddr, &length);
-  //buffer[n] = '\0';
-  recvfrom(socketfd, buffer, sizeof(buffer), 0, (struct sockaddr*)NULL, NULL);
-  printf("Server: %s\n", buffer);
-
-  close(socketfd);
-
   return 0;
+
 }
